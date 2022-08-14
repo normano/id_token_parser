@@ -11,7 +11,7 @@ use rsa::pkcs8::ToPrivateKey;
 use rustls::PrivateKey;
 use serde::{Deserialize, Serialize};
 
-use crate::Parser;
+use super::Parser;
 
 pub const KID: &str = "some-kid";
 pub const CLIENT_ID: &str = "some-client-id";

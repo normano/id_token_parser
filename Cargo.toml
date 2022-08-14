@@ -1,34 +1,36 @@
 [package]
-name = "jsonwebtoken-google"
-version = "0.1.6"
-authors = ["Kviring Aleksey <alex@kviring.com>"]
-edition = "2018"
-description = "parse and validate google jwt token with jsonwebtoken"
+name = "signin"
+version = "0.1.0"
+authors = ["Norm O <normo.pub@gmail.com>"]
+edition = "2021"
+description = "Parse and validate third party jwt token with jsonwebtoken"
 license = "MIT/Apache-2.0"
-documentation = "https://docs.rs/jsonwebtoken-google"
+documentation = "https://docs.rs/signin-rs"
 readme = "README.md"
-keywords = ["google", "jwt", "sign", "token", "android"]
-repository = "https://github.com/cheetah-games/jsonwebtoken-google"
+keywords = ["google", "jwt", "sign", "token", "android", "apple", "ios", "mac"]
+repository = "https://github.com/normano/signin-rs"
 
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-jsonwebtoken = "8.0.1"
-serde = { version = "1.0", features = ["derive"] }
-reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls"] }
-headers = "0.3.1"
-tokio = "1.0"
-httpmock = { version = "0.6.2", optional = true }
-rustls = { version = "0.20.2" }
-base64 = { version = "0.13.0", optional = true }
-thiserror = "1.0.30"
-rsa = "0.5.0"
-rand = "0.8.5"
+base64 = { version = "^0.13.0", optional = true }
+jsonwebtoken = "^8"
+headers = "^0.3.1"
+hyper = { version = "^0.14", features = ["http1"] }
+hyper-tls = "^0.5"
+httpmock = { version = "^0.6.2", optional = true }
+serde = { version = "^1", features = ["derive"] }
+serde_json = "^1.0"
+thiserror = "^1"
+tokio = { version = "^1.0", features = ["rt-multi-thread", "net", "macros"] }
 
 [dev-dependencies]
-httpmock = { version = "0.6.2" }
 base64 = { version = "0.13.0" }
+httpmock = { version = "0.6.2" }
+rsa = "^0.5.0"
+rand = "^0.8.5"
+rustls = { version = "^0.20.2" }
 
 [features]
 test-helper = ["httpmock", "base64"]
