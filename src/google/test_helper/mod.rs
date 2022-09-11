@@ -55,9 +55,12 @@ impl TokenClaims {
 
 pub fn setup(claims: &TokenClaims) -> (String, Parser, MockServer) {
     let (token, server) = setup_public_key_server(&claims);
+    let mut parser = Parser::new_with_custom_cert_url(server.url("/").as_str());
+    parser.add_client_id(CLIENT_ID);
+    
     (
         token,
-        Parser::new_with_custom_cert_url(CLIENT_ID, server.url("/").as_str()),
+        parser,
         server,
     )
 }

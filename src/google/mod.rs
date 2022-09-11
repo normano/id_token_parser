@@ -29,22 +29,30 @@ pub enum ParserError {
 /// Use public key from http(s) server.
 ///
 pub struct Parser {
-    client_id: String,
+    client_ids: Vec<String>,
     key_provider: tokio::sync::Mutex<GooglePublicKeyProvider>,
 }
 
 impl Parser {
     pub const GOOGLE_CERT_URL: &'static str = "https://www.googleapis.com/oauth2/v3/certs";
 
-    pub fn new(client_id: &str) -> Self {
-        Parser::new_with_custom_cert_url(client_id, Parser::GOOGLE_CERT_URL)
+    pub fn new() -> Self {
+        Parser::new_with_custom_cert_url(Parser::GOOGLE_CERT_URL)
     }
 
-    pub fn new_with_custom_cert_url(client_id: &str, public_key_url: &str) -> Self {
+    pub fn new_with_custom_cert_url(public_key_url: &str) -> Self {
         Self {
-            client_id: client_id.to_owned(),
+            client_ids: vec![],
             key_provider: tokio::sync::Mutex::new(GooglePublicKeyProvider::new(public_key_url)),
         }
+    }
+
+    pub fn add_client_id(&mut self, client_id: &str) {
+        self.client_ids.push(client_id.to_string());
+    }
+
+    pub fn add_client_ids(&mut self, client_ids: &Vec<String>) {
+        self.client_ids.clone_from_slice(client_ids);
     }
 
     ///
@@ -59,9 +67,9 @@ impl Parser {
                 None => Result::Err(ParserError::UnknownKid),
                 Some(kid) => match provider.get_key(kid.as_str()).await {
                     Ok(key) => {
-                        let aud = vec![self.client_id.to_owned()];
+                        let aud = &self.client_ids;
                         let mut validation = Validation::new(Algorithm::RS256);
-                        validation.set_audience(&aud);
+                        validation.set_audience(aud.as_slice());
                         validation.set_issuer(&["https://accounts.google.com".to_string(), "accounts.google.com".to_string()]);
                         validation.validate_exp = true;
                         validation.validate_nbf = false;

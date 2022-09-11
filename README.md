@@ -11,7 +11,8 @@ pub struct TokenClaims {
 }
 
 async fn main() {
-    let parser = Parser::new("some-google-web-client-id");
+    let parser = Parser::new();
+    parser.add_client_id("some-google-web-client-id");
     let claims = parser.parse::<TokenClaims>("some-token").await.unwrap();
 }
 ```
