@@ -51,8 +51,8 @@ impl Parser {
         self.client_ids.push(client_id.to_string());
     }
 
-    pub fn add_client_ids(&mut self, client_ids: &Vec<String>) {
-        self.client_ids.clone_from_slice(client_ids);
+    pub fn add_client_ids(&mut self, mut client_ids: Vec<String>) {
+        self.client_ids.append(&mut client_ids);
     }
 
     ///
