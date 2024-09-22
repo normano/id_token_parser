@@ -20,10 +20,8 @@ pub enum Error {
 	Jwt(#[from] jsonwebtoken::errors::Error),
 	#[error("serde_json error: {0}")]
 	SerdeJson(#[from] serde_json::Error),
-	#[error("hyper error: {0}")]
-	Hyper(#[from] hyper::Error),
-	#[error("http error: {0}")]
-	Http(#[from] hyper::http::Error),
+	#[error("Client error: {0}")]
+	ClientError(String), // Generalized error for any HTTP client
 }
 
 /// Convenience type for Results

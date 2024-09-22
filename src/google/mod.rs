@@ -5,9 +5,10 @@ use thiserror::Error;
 use keys::{GoogleKeyProviderError, GooglePublicKeyProvider};
 
 mod keys;
+pub mod data;
 
-#[cfg(any(test, feature = "test-helper"))]
-pub mod test_helper;
+#[cfg(any(test))]
+pub (in crate) mod test_helper;
 
 ///
 /// Parser errors
@@ -28,138 +29,151 @@ pub enum ParserError {
 /// Parse & Validate Google JWT token.
 /// Use public key from http(s) server.
 ///
-pub struct Parser {
-    client_ids: Vec<String>,
-    key_provider: tokio::sync::Mutex<GooglePublicKeyProvider>,
+pub struct GoogleTokenParser {
+  client_ids: Vec<String>,
+  key_provider: tokio::sync::Mutex<GooglePublicKeyProvider>,
 }
 
-impl Parser {
-    pub const GOOGLE_CERT_URL: &'static str = "https://www.googleapis.com/oauth2/v3/certs";
+impl GoogleTokenParser {
+  pub const GOOGLE_CERT_URL: &'static str = "https://www.googleapis.com/oauth2/v3/certs";
 
-    pub fn new() -> Self {
-        Parser::new_with_custom_cert_url(Parser::GOOGLE_CERT_URL)
+  pub fn new(public_key_url: &str) -> Self {
+    Self {
+      client_ids: vec![],
+      key_provider: tokio::sync::Mutex::new(GooglePublicKeyProvider::new(public_key_url)),
     }
+  }
 
-    pub fn new_with_custom_cert_url(public_key_url: &str) -> Self {
-        Self {
-            client_ids: vec![],
-            key_provider: tokio::sync::Mutex::new(GooglePublicKeyProvider::new(public_key_url)),
-        }
-    }
+  pub fn default() -> Self {
+    Self::new(GoogleTokenParser::GOOGLE_CERT_URL)
+  }
 
-    pub fn add_client_id(&mut self, client_id: &str) {
-        self.client_ids.push(client_id.to_string());
-    }
+  pub fn add_client_id(&mut self, client_id: &str) {
+    self.client_ids.push(client_id.to_string());
+  }
 
-    pub fn add_client_ids(&mut self, mut client_ids: Vec<String>) {
-        self.client_ids.append(&mut client_ids);
-    }
+  pub fn add_client_ids(&mut self, mut client_ids: Vec<String>) {
+    self.client_ids.append(&mut client_ids);
+  }
 
-    ///
-    /// Parse and validate token.
-    /// Download and cache public keys from http(s) server.
-    /// Use expire time header for reload keys.
-    ///
-    pub async fn parse<T: DeserializeOwned>(&self, token: &str) -> Result<T, ParserError> {
-        let mut provider = self.key_provider.lock().await;
-        match jsonwebtoken::decode_header(token) {
-            Ok(header) => match header.kid {
-                None => Result::Err(ParserError::UnknownKid),
-                Some(kid) => match provider.get_key(kid.as_str()).await {
-                    Ok(key) => {
-                        let aud = &self.client_ids;
-                        let mut validation = Validation::new(Algorithm::RS256);
-                        validation.set_audience(aud.as_slice());
-                        validation.set_issuer(&["https://accounts.google.com".to_string(), "accounts.google.com".to_string()]);
-                        validation.validate_exp = true;
-                        validation.validate_nbf = false;
-                        let result = jsonwebtoken::decode::<T>(token, &key, &validation);
-                        match result {
-                            Result::Ok(token_data) => Result::Ok(token_data.claims),
-                            Result::Err(error) => Result::Err(ParserError::WrongToken(error)),
-                        }
-                    }
-                    Err(e) => {
-                        let error = ParserError::KeyProvider(e);
-                        Result::Err(error)
-                    }
-                },
-            },
-            Err(_) => Result::Err(ParserError::WrongHeader),
-        }
+  pub async fn parse(&self, token: &str) -> Result<data::GoogleTokenClaims, ParserError> {
+    return self.decode(token).await;
+  }
+
+  ///
+  /// Parse and validate token.
+  /// Download and cache public keys from http(s) server.
+  /// Use expire time header for reload keys.
+  ///
+  pub async fn decode<T: DeserializeOwned>(&self, token: &str) -> Result<T, ParserError> {
+    let mut provider = self.key_provider.lock().await;
+    match jsonwebtoken::decode_header(token) {
+      Ok(header) => match header.kid {
+        None => Result::Err(ParserError::UnknownKid),
+        Some(kid) => match provider.get_key(kid.as_str()).await {
+          Ok(key) => {
+            let aud = &self.client_ids;
+            let mut validation = Validation::new(Algorithm::RS256);
+            validation.set_audience(aud.as_slice());
+            validation.set_issuer(&["https://accounts.google.com".to_string(), "accounts.google.com".to_string()]);
+            validation.validate_exp = true;
+            validation.validate_nbf = false;
+            let result = jsonwebtoken::decode::<T>(token, &key, &validation);
+            match result {
+              Result::Ok(token_data) => Result::Ok(token_data.claims),
+              Result::Err(error) => Result::Err(ParserError::WrongToken(error)),
+            }
+          }
+          Err(e) => {
+            let error = ParserError::KeyProvider(e);
+            Result::Err(error)
+          }
+        },
+      },
+      Err(_) => Result::Err(ParserError::WrongHeader),
     }
+  }
 }
 
 #[cfg(test)]
 mod tests {
-    use jsonwebtoken::errors::ErrorKind;
+  use httpmock::MockServer;
+  use jsonwebtoken::errors::ErrorKind;
+  use once_cell::sync::Lazy;
 
-    use super::ParserError;
-    use super::test_helper::{setup, TokenClaims};
+  use super::ParserError;
+  use super::test_helper::{setup, TokenClaims};
 
-    #[tokio::test]
-    async fn should_correct() {
-        let claims = TokenClaims::new();
-        let (token, parser, _server) = setup(&claims);
-        let result = parser.parse::<TokenClaims>(token.as_str()).await;
-        let result = result.unwrap();
-        assert_eq!(result.email, claims.email);
-    }
+  static MOCK_SERVER: Lazy<MockServer> = Lazy::new(|| {
+    let server = MockServer::start();
+    server
+  });
 
-    #[tokio::test]
-    async fn should_validate_exp() {
-        let claims = TokenClaims::new_expired();
-        let (token, validator, _server) = setup(&claims);
-        let result = validator.parse::<TokenClaims>(token.as_str()).await;
+  #[tokio::test]
+  async fn should_correct() {
+    let claims = TokenClaims::new();
+    let (token, parser) = setup(&MOCK_SERVER, &claims);
+    let result = parser.decode::<TokenClaims>(token.as_str()).await;
+    let result = result.unwrap();
+    assert_eq!(result.email, claims.email);
+  }
 
-        assert!(
-            if let ParserError::WrongToken(error) = result.err().unwrap() {
-                if let ErrorKind::ExpiredSignature = error.into_kind() {
-                    true
-                } else {
-                    false
-                }
-            } else {
-                false
-            }
-        );
-    }
+  #[tokio::test]
+  async fn should_validate_exp() {
+    let claims = TokenClaims::new_expired();
+    let (token, validator) = setup(&MOCK_SERVER, &claims);
+    let result = validator.decode::<TokenClaims>(token.as_str()).await;
 
-    #[tokio::test]
-    async fn should_validate_iss() {
-        let mut claims = TokenClaims::new();
-        claims.iss = "https://some.com".to_owned();
-        let (token, validator, _server) = setup(&claims);
-        let result = validator.parse::<TokenClaims>(token.as_str()).await;
-        assert!(
-            if let ParserError::WrongToken(error) = result.err().unwrap() {
-                if let ErrorKind::InvalidIssuer = error.into_kind() {
-                    true
-                } else {
-                    false
-                }
-            } else {
-                false
-            }
-        );
-    }
+    assert!(
+      if let ParserError::WrongToken(error) = result.err().unwrap() {
+        if let ErrorKind::ExpiredSignature = error.into_kind() {
+          true
+        } else {
+          false
+        }
+      } else {
+        false
+      }
+    );
+  }
 
-    #[tokio::test]
-    async fn should_validate_aud() {
-        let mut claims = TokenClaims::new();
-        claims.aud = "other-id".to_owned();
-        let (token, validator, _server) = setup(&claims);
-        let result = validator.parse::<TokenClaims>(token.as_str()).await;
-        assert!(
-            if let ParserError::WrongToken(error) = result.err().unwrap() {
-                if let ErrorKind::InvalidAudience = error.into_kind() {
-                    true
-                } else {
-                    false
-                }
-            } else {
-                false
-            }
-        );
-    }
+  #[tokio::test]
+  async fn should_validate_iss() {
+    let mut claims = TokenClaims::new();
+    claims.iss = "https://some.com".to_owned();
+    let (token, validator) = setup(&MOCK_SERVER, &claims);
+    let result = validator.decode::<TokenClaims>(token.as_str()).await;
+    
+    assert!(
+      if let ParserError::WrongToken(error) = result.err().unwrap() {
+        if let ErrorKind::InvalidIssuer = error.into_kind() {
+          true
+        } else {
+          false
+        }
+      } else {
+        false
+      }
+    );
+  }
+
+  #[tokio::test]
+  async fn should_validate_aud() {
+    let mut claims = TokenClaims::new();
+    claims.aud = "other-id".to_owned();
+    let (token, validator) = setup(&MOCK_SERVER, &claims);
+    let result = validator.decode::<TokenClaims>(token.as_str()).await;
+
+    assert!(
+      if let ParserError::WrongToken(error) = result.err().unwrap() {
+        if let ErrorKind::InvalidAudience = error.into_kind() {
+          true
+        } else {
+          false
+        }
+      } else {
+        false
+      }
+    );
+  }
 }

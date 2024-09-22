@@ -1,6 +1,6 @@
 use serde::{Deserialize, Deserializer, Serialize};
 
-pub const APPLE_PUB_KEYS: &str = "https://appleid.apple.com/auth/keys";
+pub const APPLE_PUB_KEYS_URL: &str = "https://appleid.apple.com/auth/keys";
 pub const APPLE_ISSUER: &str = "https://appleid.apple.com";
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -17,12 +17,12 @@ pub struct KeyComponents {
 pub struct Claims {
 	pub iss: String,
 	pub aud: String,
-	pub exp: i32,
-	pub iat: i32,
+	pub exp: i64,
+	pub iat: i64,
 	pub sub: String,
 	pub email: Option<String>,
 	pub email_verified: Option<String>,
-	pub auth_time: i32,
+	pub auth_time: i64,
 }
 
 /// see <https://developer.apple.com/documentation/sign_in_with_apple/processing_changes_for_sign_in_with_apple_accounts>

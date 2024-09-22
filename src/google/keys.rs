@@ -1,11 +1,10 @@
 use std::collections::HashMap;
-use std::time::Instant;
+use std::time::{Instant, Duration};
 
-use headers::Header;
-use hyper::{body, Body, Client, Request};
-use hyper_tls::HttpsConnector;
 use jsonwebtoken::DecodingKey;
 use jsonwebtoken::errors::Error;
+use reqwest::Client;
+use reqwest::header::CACHE_CONTROL;
 use serde::Deserialize;
 use thiserror::Error;
 
@@ -50,53 +49,58 @@ impl GooglePublicKeyProvider {
   }
 
   pub async fn reload(&mut self) -> Result<(), GoogleKeyProviderError> {
-    let https = HttpsConnector::new();
-    let client = Client::builder().build::<_, hyper::Body>(https);
+    let client = Client::new();
 
-    let req = Request::builder()
-      .method("GET")
-      .uri(&self.url)
-      .body(Body::from(""));
-    
-    if req.is_err() {
-      let e = req.unwrap_err();
-      return Result::Err(GoogleKeyProviderError::FetchError(format!("{:?}", e)));
-    }
+    // Send GET request using reqwest
+    let res = client.get(&self.url).send().await;
 
-    match client.request(req.unwrap()).await {
+    match res {
       Ok(r) => {
-        let expiration_time = GooglePublicKeyProvider::parse_expiration_time(&r.headers());
-        let buf = body::to_bytes(r).await;
+          let expiration_time = Self::parse_expiration_time(r.headers());
 
-        if buf.is_err() {
-          let e = buf.unwrap_err();
-          return Result::Err(GoogleKeyProviderError::ParseError(format!("{:?}", e)));
-        }
-
-        match serde_json::from_slice::<GoogleKeys>(&buf.unwrap()) {
-          Ok(google_keys) => {
-              self.keys.clear();
-              for key in google_keys.keys.into_iter() {
-                  self.keys.insert(key.kid.clone(), key);
-              }
-              self.expiration_time = expiration_time;
-              Result::Ok(())
+          let buf = r.bytes().await;
+          if buf.is_err() {
+              return Err(GoogleKeyProviderError::ParseError(format!("{:?}", buf.unwrap_err())));
           }
-          Err(e) => Result::Err(GoogleKeyProviderError::ParseError(format!("{:?}", e))),
-        }
+
+          let buf = buf.unwrap();
+          match serde_json::from_slice::<GoogleKeys>(&buf) {
+              Ok(google_keys) => {
+                  self.keys.clear();
+                  for key in google_keys.keys.into_iter() {
+                      self.keys.insert(key.kid.clone(), key);
+                  }
+                  self.expiration_time = expiration_time;
+                  Ok(())
+              }
+              Err(e) => Err(GoogleKeyProviderError::ParseError(format!("{:?}", e))),
+          }
       }
-      Err(e) => Result::Err(GoogleKeyProviderError::FetchError(format!("{:?}", e))),
+      Err(e) => Err(GoogleKeyProviderError::FetchError(format!("{:?}", e))),
     }
   }
 
-  fn parse_expiration_time(header_map: &hyper::HeaderMap) -> Option<Instant> {
-    match headers::CacheControl::decode(&mut header_map.get_all(hyper::header::CACHE_CONTROL).iter()) {
-      Ok(header) => match header.max_age() {
-        None => None,
-        Some(max_age) => Some(Instant::now() + max_age),
-      },
-      Err(_) => None,
+  fn parse_expiration_time(headers: &reqwest::header::HeaderMap) -> Option<Instant> {
+    if let Some(cache_control_value) = headers.get(CACHE_CONTROL) {
+      let cache_control_str = cache_control_value.to_str().ok()?;
+      if let Some(max_age) = Self::parse_max_age(cache_control_str) {
+          return Some(Instant::now() + Duration::from_secs(max_age));
+      }
     }
+    None
+  }
+
+  fn parse_max_age(cache_control: &str) -> Option<u64> {
+    cache_control
+      .split(',')
+      .find_map(|directive| {
+        let directive = directive.trim();
+        if directive.starts_with("max-age=") {
+            directive[8..].parse::<u64>().ok()
+        } else {
+            None
+        }
+      })
   }
 
   pub fn is_expire(&self) -> bool {
@@ -129,8 +133,22 @@ mod tests {
   use std::time::Duration;
 
   use httpmock::MockServer;
+  use once_cell::sync::Lazy;
+use rand::Rng;
 
   use super::{GoogleKeyProviderError, GooglePublicKeyProvider};
+
+  static MOCK_SERVER: Lazy<MockServer> = Lazy::new(|| {
+    let server = MockServer::start();
+    server
+  });
+  
+  fn get_mock_google_pubkey_route() -> (String, String) {
+    let random_number: u32 = rand::thread_rng().gen_range(0..10000);
+  
+    let route = format!("/{}", random_number);
+    return (format!("{}{}", MOCK_SERVER.base_url(), route), route);
+  }
 
   #[tokio::test]
   async fn should_parse_keys() {
@@ -139,9 +157,9 @@ mod tests {
     let kid = "some-kid";
     let resp = format!("{{\"keys\": [{{\"kty\": \"RSA\",\"use\": \"sig\",\"e\": \"{}\",\"n\": \"{}\",\"alg\": \"RS256\",\"kid\": \"{}\"}}]}}", e, n, kid);
 
-    let server = MockServer::start();
-    let _server_mock = server.mock(|when, then| {
-      when.method(httpmock::Method::GET).path("/");
+    let pub_key_route = get_mock_google_pubkey_route();
+    let _server_mock = MOCK_SERVER.mock(|when, then| {
+      when.method(httpmock::Method::GET).path(&pub_key_route.1);
 
       then.status(200)
         .header(
@@ -151,7 +169,7 @@ mod tests {
         .header("Content-Type", "application/json; charset=UTF-8")
         .body(resp);
     });
-    let mut provider = GooglePublicKeyProvider::new(server.url("/").as_str());
+    let mut provider = GooglePublicKeyProvider::new(&pub_key_route.0);
 
     assert!(matches!(provider.get_key(kid).await, Result::Ok(_)));
     assert!(matches!(
@@ -162,14 +180,14 @@ mod tests {
 
   #[tokio::test]
   async fn should_expire_and_reload() {
-    let server = MockServer::start();
     let n = "3g46w4uRYBx8CXFauWh6c5yO4ax_VDu5y8ml_Jd4Gx711155PTdtLeRuwZOhJ6nRy8YvLFPXc_aXtHifnQsi9YuI_vo7LGG2v3CCxh6ndZBjIeFkxErMDg4ELt2DQ0PgJUQUAKCkl2_gkVV9vh3oxahv_BpIgv1kuYlyQQi5JWeF7zAIm0FaZ-LJT27NbsCugcZIDQg9sztTN18L3-P_kYwvAkKY2bGYNU19qLFM1gZkzccFEDZv3LzAz7qbdWkwCoK00TUUH8TNjqmK67bytYzgEgkfF9q9szEQ5TrRL0uFg9LxT3kSTLYqYOVaUIX3uaChwaa-bQvHuNmryu7i9w";
     let e = "AQAB";
     let kid = "some-kid";
     let resp = format!("{{\"keys\": [{{\"kty\": \"RSA\",\"use\": \"sig\",\"e\": \"{}\",\"n\": \"{}\",\"alg\": \"RS256\",\"kid\": \"{}\"}}]}}", e, n, kid);
 
-    let mut server_mock = server.mock(|when, then| {
-      when.method(httpmock::Method::GET).path("/");
+    let pub_key_route = get_mock_google_pubkey_route();
+    let mut server_mock = MOCK_SERVER.mock(|when, then| {
+      when.method(httpmock::Method::GET).path(&pub_key_route.1);
       then.status(200)
         .header(
             "cache-control",
@@ -179,7 +197,7 @@ mod tests {
         .body("{\"keys\":[]}");
     });
 
-    let mut provider = GooglePublicKeyProvider::new(server.url("/").as_str());
+    let mut provider = GooglePublicKeyProvider::new(&pub_key_route.0);
     let key_result = provider.get_key(kid).await;
     assert!(matches!(
       key_result,
@@ -187,8 +205,8 @@ mod tests {
     ));
 
     server_mock.delete();
-    let _server_mock = server.mock(|when, then| {
-      when.method(httpmock::Method::GET).path("/");
+    let _server_mock = MOCK_SERVER.mock(|when, then| {
+      when.method(httpmock::Method::GET).path(&pub_key_route.1);
       then.status(200)
         .header(
             "cache-control",
