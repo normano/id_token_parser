@@ -49,7 +49,7 @@ impl AppleTokenParser {
 		let token_data =
 			self.decode::<Claims>(token, ignore_expire).await?;
 
-		//TODO: can this be validated alread in `decode_token`?
+		//TODO: can this be validated already in `decode_token`?
 		if token_data.claims.iss != APPLE_ISSUER {
 			return Err(Error::IssClaimMismatch);
 		}

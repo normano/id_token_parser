@@ -8,7 +8,7 @@ license = "MIT/Apache-2.0"
 documentation = "https://docs.rs/signin-rs"
 readme = "README.md"
 keywords = ["google", "apple", "jwt", "webtoken",]
-repository = "https://github.com/normano/signin-rs"
+repository = "https://github.com/normano/id_token_parser"
 
 [dependencies]
 base64 = { version = "^0" }
