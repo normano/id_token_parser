@@ -1,11 +1,11 @@
 [package]
 name = "id_token_parser"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Norm O <normo.pub@gmail.com>"]
 edition = "2021"
 description = "Parse and validate third party jwt token with jsonwebtoken"
-license = "MIT/Apache-2.0"
-documentation = "https://docs.rs/signin-rs"
+license = "MPL-2.0"
+documentation = "https://docs.rs/id_token_parser"
 readme = "README.md"
 keywords = ["google", "apple", "jwt", "webtoken",]
 repository = "https://github.com/normano/id_token_parser"
