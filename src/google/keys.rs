@@ -144,7 +144,7 @@ use rand::Rng;
   });
   
   fn get_mock_google_pubkey_route() -> (String, String) {
-    let random_number: u32 = rand::thread_rng().gen_range(0..10000);
+    let random_number: u32 = rand::rng().random_range(0..10000);
   
     let route = format!("/{}", random_number);
     return (format!("{}{}", MOCK_SERVER.base_url(), route), route);

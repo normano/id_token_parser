@@ -4,7 +4,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use base64::prelude::*;
 use httpmock::MockServer;
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
-use rand::{thread_rng, Rng};
+use rand::{rng, Rng};
 use rsa::{traits::PublicKeyParts, RsaPrivateKey};
 use rsa::pkcs1::EncodeRsaPrivateKey;
 use serde::{Deserialize, Serialize};
@@ -52,7 +52,7 @@ impl TokenClaims {
 }
 
 fn get_mock_google_pubkey_route(server: &MockServer,) -> (String, String) {
-  let random_number: u32 = rand::thread_rng().gen_range(0..10000);
+  let random_number: u32 = rand::rng().random_range(0..10000);
 
   let route = format!("/cert/{}", random_number);
   return (format!("{}{}", server.base_url(), route), route);
@@ -65,14 +65,14 @@ pub fn setup(server: &MockServer, claims: &TokenClaims) -> (String, GoogleTokenP
   header.typ = Some("JWT".to_owned());
 
   let bits = 2048;
-  let private_key = RsaPrivateKey::new(&mut thread_rng(), bits).expect("failed to generate a key");
+  let private_key = RsaPrivateKey::new(&mut rng(), bits).expect("failed to generate a key");
   let der = private_key.to_pkcs1_der().unwrap();
   let key = EncodingKey::from_rsa_der(der.to_bytes().as_slice());
   let token = jsonwebtoken::encode::<TokenClaims>(&header, &claims, &key).unwrap();
 
   let public_key = private_key.to_public_key();
-  let n = BASE64_URL_SAFE_NO_PAD.encode(public_key.n().to_bytes_be());
-  let e = BASE64_URL_SAFE_NO_PAD.encode(public_key.e().to_bytes_be());
+  let n = BASE64_URL_SAFE_NO_PAD.encode(public_key.n().to_be_bytes());
+  let e = BASE64_URL_SAFE_NO_PAD.encode(public_key.e().to_be_bytes_trimmed_vartime());
 
   let resp = format!("{{\"keys\": [{{\"kty\": \"RSA\",\"use\": \"sig\",\"e\": \"{}\",\"n\": \"{}\",\"alg\": \"RS256\",\"kid\": \"{}\"}}]}}", e, n, KID);
 
