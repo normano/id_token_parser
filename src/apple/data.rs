@@ -3,7 +3,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 pub const APPLE_PUB_KEYS_URL: &str = "https://appleid.apple.com/auth/keys";
 pub const APPLE_ISSUER: &str = "https://appleid.apple.com";
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct KeyComponents {
 	pub kty: String,   // "RSA"
 	pub kid: String,   // "eXaunmL"
