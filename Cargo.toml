@@ -1,6 +1,6 @@
 [package]
 name = "id_token_parser"
-version = "0.2.2"
+version = "0.2.3"
 authors = ["Norm O <normo.pub@gmail.com>"]
 edition = "2024"
 description = "Parse and validate third party jwt token with jsonwebtoken"
@@ -15,6 +15,7 @@ base64 = { version = "0.22" }
 jsonwebtoken = { version = "10", features = ["rust_crypto"] }
 headers = "0.4"
 httpmock = { version = "0.8" }
+parking_lot = "0.12"
 reqwest = { version = "0.12", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
