@@ -1,6 +1,6 @@
 [package]
 name = "id_token_parser"
-version = "0.2.3"
+version = "0.2.4"
 authors = ["Norm O <normo.pub@gmail.com>"]
 edition = "2024"
 description = "Parse and validate third party jwt token with jsonwebtoken"

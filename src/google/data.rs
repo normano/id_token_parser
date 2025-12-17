@@ -1,3 +1,5 @@
+use crate::util::deserialize_bool_or_string;
+
 use serde::{Deserialize, Serialize};
 
 /// Example from https://developers.google.com/identity/sign-in/web/backend-auth#calling-the-tokeninfo-endpoint
@@ -22,11 +24,25 @@ use serde::{Deserialize, Serialize};
 /// }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GoogleTokenClaims {
-  pub aud: String,
   pub iss: String,
-  pub exp: u64,
-  pub email: String,
   pub sub: String,
-  pub email_verified: bool,
-  pub name: String,
+  pub azp: String,
+  pub aud: String,
+  pub iat: u64,
+  pub exp: u64,
+
+  #[serde(default)]
+  pub email: Option<String>,
+  #[serde(default, deserialize_with = "deserialize_bool_or_string")]
+  pub email_verified: Option<bool>,
+  #[serde(default)]
+  pub name: Option<String>,
+  #[serde(default)]
+  pub picture: Option<String>,
+  #[serde(default)]
+  pub given_name: Option<String>,
+  #[serde(default)]
+  pub family_name: Option<String>,
+  #[serde(default)]
+  pub locale: Option<String>,
 }
