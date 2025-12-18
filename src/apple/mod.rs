@@ -13,17 +13,15 @@ mod data;
 mod error;
 mod keys;
 
-pub use data::{Claims, ClaimsServer2Server};
+pub use data::{AppleTokenClaims, ClaimsServer2Server};
 pub use error::Error;
 
-use data::{KeyComponents, APPLE_ISSUER, APPLE_PUB_KEYS_URL};
+use data::{APPLE_ISSUER, APPLE_PUB_KEYS_URL};
 use error::Result;
-use jsonwebtoken::{self, decode, decode_header, DecodingKey, TokenData, Validation};
-use reqwest::Client;
+use jsonwebtoken::{self, decode, decode_header, TokenData, Validation};
 use serde::de::DeserializeOwned;
-use std::collections::HashMap;
 use tokio::sync::Mutex;
-use tracing::{debug, info, instrument};
+use tracing::{info, instrument};
 
 use crate::apple::keys::ApplePublicKeyProvider;
 
@@ -43,8 +41,8 @@ impl AppleTokenParser {
   }
 
   #[instrument(skip(self, token))]
-  pub async fn parse(&self, client_id: String, token: String, ignore_expire: bool) -> Result<TokenData<Claims>> {
-    let token_data = self.decode::<Claims>(client_id.clone(), token, ignore_expire).await?;
+  pub async fn parse(&self, client_id: String, token: String, ignore_expire: bool) -> Result<TokenData<AppleTokenClaims>> {
+    let token_data = self.decode::<AppleTokenClaims>(client_id.clone(), token, ignore_expire).await?;
 
     //TODO: can this be validated already in `decode_token`?
     if token_data.claims.iss != APPLE_ISSUER {
@@ -88,7 +86,7 @@ impl AppleTokenParser {
 
 /// allows to check whether the `validate` result was errored because of an expired signature
 #[must_use]
-pub fn is_expired(validate_result: &Result<TokenData<Claims>>) -> bool {
+pub fn is_expired(validate_result: &Result<TokenData<AppleTokenClaims>>) -> bool {
   if let Err(Error::Jwt(error)) = validate_result {
     return matches!(error.kind(), jsonwebtoken::errors::ErrorKind::ExpiredSignature);
   }
@@ -100,7 +98,9 @@ pub fn is_expired(validate_result: &Result<TokenData<Claims>>) -> bool {
 mod tests {
   use std::time::{SystemTime, UNIX_EPOCH};
 
-  use super::*;
+  use crate::apple::data::KeyComponents;
+
+use super::*;
   use base64::prelude::*;
   use httpmock::{Method::GET, MockServer};
   use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
@@ -108,7 +108,7 @@ mod tests {
   use rand::{Rng, SeedableRng, rng, rngs::StdRng};
   use rsa::{pkcs1::EncodeRsaPrivateKey, traits::PublicKeyParts, RsaPrivateKey};
   use serde::{Deserialize, Serialize};
-  use tracing::{info, level_filters::LevelFilter};
+  use tracing::{debug, info, level_filters::LevelFilter};
 
   static MOCK_SERVER: Lazy<MockServer> = Lazy::new(|| {
     let server = MockServer::start();
@@ -143,15 +143,13 @@ mod tests {
     let encoding_key = EncodingKey::from_rsa_der(&private_key.to_pkcs1_der().unwrap().as_bytes());
 
     // Step 2: Create claims for the token
-    let my_claims = Claims {
-      aud: client_id.to_string(),
-      iss: issuer.to_string(),
-      exp,
-      auth_time: 0,
-      email: None,
-      email_verified: None,
-      iat: 0,
-      sub: "".to_string(),
+    let my_claims = {
+      let mut claims = AppleTokenClaims::default();
+      claims.aud = client_id.to_string();
+      claims.iss = issuer.to_string();
+      claims.exp = exp;
+      
+      claims
     };
 
     let header = {
